@@ -1,5 +1,6 @@
 #include "game.hpp"
 #include "input/input_system.hpp"
+#include "time/time_manager.hpp"
 
 #include <SDL3/SDL_init.h>
 #include <SDL3/SDL_log.h>
@@ -9,6 +10,7 @@
 #include <SDL3/SDL_render.h>
 #include <SDL3_image/SDL_image.h>
 
+#include <glad/gl.h>
 
 auto gep::game::init() noexcept -> bool
 {
@@ -19,13 +21,32 @@ auto gep::game::init() noexcept -> bool
 		return false;
 	}
 
-	handle = SDL_CreateWindow("Gep", 1280, 720, SDL_WINDOW_RESIZABLE);
+	// configure SDL to request OpenGL 4.6
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 6);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+
+	handle = SDL_CreateWindow("Gep", 1280, 720, SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
 	if (handle == nullptr)
 	{
 		SDL_LogError(SDL_LOG_CATEGORY_VIDEO,
 			"SDL_CreateWindow: %s", SDL_GetError());
 		return false;
 	}
+
+	gl_context = SDL_GL_CreateContext(handle);
+	if (gl_context == nullptr)
+	{
+		SDL_LogError(SDL_LOG_CATEGORY_VIDEO, "SDL_GL_CreateContext: %s", SDL_GetError());
+		return false;
+	}
+
+	if (gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress) == 0)
+	{
+		SDL_LogError(SDL_LOG_CATEGORY_VIDEO, "Failed to initialize GLAD");
+		return false;
+	}
+
 	renderer = SDL_CreateRenderer(handle, nullptr);
 	if (renderer == nullptr)
 	{
@@ -56,13 +77,17 @@ auto gep::game::init() noexcept -> bool
 auto gep::game::run() -> void
 {
 	bool is_running = true;
+
+	// Singletons
 	auto& input_system = input::input_system::instance();
+	auto& time_manager = time::time_manager::instance();
 
 	// Define background color for changing them
 	SDL_Color background{ 30, 30, 30, 255 };
 
 	while (is_running)
 	{
+		time_manager.tick();
 		input_system.update();
 
 		SDL_Event event;
@@ -104,23 +129,25 @@ auto gep::game::run() -> void
 			}
 		}
 
-		int move_speed = 1;
+		// move speed times delta time so movement is same on different computers and not changing by performance differences
+		float delta_time = time_manager.get_delta_time();
+		float move_speed = 100.0f;
 
 		if (input_system.is_key_pressed(SDLK_W))
 		{
-			image_y -= move_speed;
+			image_y -= move_speed * delta_time;
 		}
 		if (input_system.is_key_pressed(SDLK_A))
 		{
-			image_x -= move_speed;
+			image_x -= move_speed * delta_time;
 		}
 		if (input_system.is_key_pressed(SDLK_S))
 		{
-			image_y += move_speed;
+			image_y += move_speed * delta_time;
 		}
 		if (input_system.is_key_pressed(SDLK_D))
 		{
-			image_x += move_speed;
+			image_x += move_speed * delta_time;
 		}
 
 		int win_width, win_height;
@@ -158,6 +185,11 @@ auto gep::game::shutdown() noexcept -> void
 	if (handle != nullptr)
 	{
 		SDL_DestroyWindow(handle);
+	}
+
+	if (gl_context != nullptr)
+	{
+		SDL_GL_DestroyContext(gl_context);
 	}
 
 	SDL_Quit();

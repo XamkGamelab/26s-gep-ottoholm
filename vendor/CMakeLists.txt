@@ -20,10 +20,14 @@ FetchContent_Declare(
 	GIT_TAG release-3.4.6 
 	GIT_SHALLOW ON
 	GIT_PROGRESS ON
-	GIT_SUBMODULES ""   # don't clone external/ (aom, dav1d, libjxl, ...)
+	GIT_SUBMODULES ""  
 )
 
-# Use only SDL_image's built-in decoders (stb_image handles PNG and JPG)
+# Glad 
+add_library(GLAD STATIC "glad/src/gl.c")
+target_include_directories(GLAD PUBLIC "glad/include")
+
+
 set(SDLIMAGE_VENDORED   OFF CACHE BOOL "" FORCE)
 set(SDLIMAGE_PNG_LIBPNG OFF CACHE BOOL "" FORCE)
 set(SDLIMAGE_AVIF       OFF CACHE BOOL "" FORCE)
