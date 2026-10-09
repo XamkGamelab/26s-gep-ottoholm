@@ -2,6 +2,7 @@
 #include "input/input_system.hpp"
 #include "time/time_manager.hpp"
 
+#include <string>
 #include <SDL3/SDL_init.h>
 #include <SDL3/SDL_log.h>
 #include <SDL3/SDL_video.h>
@@ -177,6 +178,113 @@ auto gep::game::run() -> void
 		SDL_RenderTexture(renderer, image, nullptr, &dest); // Draw the image and colors
 
 		SDL_RenderPresent(renderer); // Show it
+
+		const char* vertexShaderSource = "#version 460 core\n"
+			"layout (location = 0) in vec3 in_pos;\n"
+			"void main()\n"
+			"{\n"
+			"   gl_Position = vec4(in_pos.x, in_pos.y, in_pos.z, 1.0);\n"
+			"}\0";
+
+		const char* fragShaderSource = "#version 460 core\n"
+			"out ve4 FragColor;\n"
+			"void main()\n"
+			"{\n"
+			"   FragColor = vec4(1.0f 0.5f, 0.2f, 1.0);\n"
+			"}\0";
+
+		// Get shader objects
+		uint32_t vertexShader, fragmentShader;
+		vertexShader = glCreateShader(GL_VERTEX_SHADER);
+		fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+
+		// Give shader objects thir source codes
+		glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
+		glCompileShader(vertexShader);
+
+		int32_t status = 0;
+		glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &status);
+		if (status == 0) {
+			int32_t log_lenght;
+			glGetShaderiv(vertexShader, GL_INFO_LOG_LENGTH, &log_lenght);
+			std::string log = std::string((std::size_t)log_lenght, ' ');
+			glGetShaderInfoLog(vertexShader, log_lenght, nullptr, &log[0]);
+			SDL_LogError(SDL_LOG_CATEGORY_GPU,
+				"Vertex shader compile failed: %s", log.c_str());
+		}
+
+		// Give shader objects thir source codes 
+		glShaderSource(fragmentShader, 1, &fragShaderSource, NULL);
+		glCompileShader(fragmentShader);
+
+		status = 0;
+		glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &status);
+		if (status == 0) {
+			int32_t log_lenght;
+			glGetShaderiv(fragmentShader, GL_INFO_LOG_LENGTH, &log_lenght);
+			std::string log = std::string((std::size_t)log_lenght, ' ');
+			glGetShaderInfoLog(fragmentShader, log_lenght, nullptr, &log[0]);
+			SDL_LogError(SDL_LOG_CATEGORY_GPU,
+				"Fragment shader compile failed: %s", log.c_str());
+		}
+
+		// Create shader programn
+		uint32_t shaderProgram = glCreateProgram();
+		// Attach shaders to the shader program
+		glAttachShader(shaderProgram, vertexShader);
+		glAttachShader(shaderProgram, fragmentShader);
+		// Link shader program
+		glLinkProgram(shaderProgram);
+		status = 0;
+		glGetProgramiv(shaderProgram, GL_LINK_STATUS, &status);
+		if (status == 0) {
+			int32_t log_lenght;
+			glGetShaderiv(shaderProgram, GL_INFO_LOG_LENGTH, &log_lenght);
+			std::string log = std::string((std::size_t)log_lenght, ' ');
+			glGetProgramInfoLog(shaderProgram, log_lenght, nullptr, &log[0]);
+			SDL_LogError(SDL_LOG_CATEGORY_GPU,
+				"Shader program linking failed: %s", log.c_str());
+		}
+
+		// Delete shaders
+		glDeleteShader(vertexShader);  // Deallocation
+		glDeleteShader(fragmentShader); // Deallocation
+		// Use shader program
+		glUseProgram(shaderProgram);
+
+		// Triangle
+		float vertices[] = {
+			// X    Y
+		    -0.5f, -0.5f,
+			0.5f,  -0.5f,
+			0.0f,   0.5f,
+		};
+
+		
+		uint32_t vao, vbo;
+		// vertex array object --> larger state machine inside opengl
+		glGenVertexArrays(1, &vao);
+		glBindVertexArray(vao);
+
+		// vertex buffer object --> takes vertex data
+		glGenBuffers(1, &vbo);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+		uint32_t element_size = 2 * sizeof(float);
+		uint32_t vertex_count = sizeof(vertices) / element_size;
+		glVertexAttribPointer(0, 
+			vertex_count, GL_FLOAT, GL_FALSE, element_size, (void*)0);
+		glEnableVertexAttribArray(0);
+		glDrawArrays(GL_TRIANGLES, 0, 3);
+
+		// clean up
+		glBindVertexArray(0);
+		glDeleteBuffers(1, &vbo);
+		glDeleteVertexArrays(1, &vao);
+
+
+		SDL_GL_SwapWindow(handle);
 	}
 }
 
