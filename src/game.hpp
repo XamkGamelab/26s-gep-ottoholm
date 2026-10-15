@@ -1,6 +1,9 @@
 #pragma once
 #include <SDL3/SDL_video.h>
 #include <SDL3/SDL_render.h>
+
+#include "shaders/renderer2d.hpp"
+
 namespace gep
 {
 	class [[nodiscard]] game
@@ -23,6 +26,8 @@ namespace gep
 		SDL_Renderer* renderer;
 		SDL_Texture* image;
 		SDL_GLContext gl_context;
+
+		graphics::renderer2d renderer_2d;
 
 		// Image position (top-left corner) and size, in pixels
 		float image_x = 0.0f;

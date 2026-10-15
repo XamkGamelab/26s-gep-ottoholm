@@ -1,7 +1,17 @@
 # src/CMakeLists.txt
 
 # Streamline the build config
-add_executable(GEP26S "main.cpp" "game.cpp" "input/input_system.cpp" "time/time_manager.cpp")
+add_executable(GEP26S 
+	"main.cpp" 
+	"game.cpp" 
+	"input/input_system.cpp" 
+	"time/time_manager.cpp"
+	"file_loader/file_loader.cpp"
+	"shaders/shader.cpp"
+	"shaders/renderer2d.cpp"
+)
+
+target_include_directories(GEP26S PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_compile_features(GEP26S PRIVATE cxx_std_23)
 target_link_libraries(GEP26S PRIVATE 
