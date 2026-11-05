@@ -1,17 +1,26 @@
+#include <glad/gl.h>
 #include "game.hpp"
-#include "input/input_system.hpp"
-#include "time/time_manager.hpp"
 
+#include <cmath>
 #include <string>
 #include <SDL3/SDL_init.h>
 #include <SDL3/SDL_log.h>
 #include <SDL3/SDL_video.h>
 #include <SDL3/SDL_events.h>
-#include <SDL3/SDL_keycode.h>
 #include <SDL3/SDL_render.h>
+#include <SDL3/SDL_mouse.h>
+
 #include <SDL3_image/SDL_image.h>
 
-#include <glad/gl.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
+
+#include "core/transform.hpp"
+#include "input/input_system.hpp"
+#include "time/time_manager.hpp"
+#include "renderer/camera.hpp"
+#include "renderer/renderer_2d.hpp"
+#include "renderer/texture.hpp"
 
 auto gep::game::init() noexcept -> bool
 {
@@ -23,205 +32,143 @@ auto gep::game::init() noexcept -> bool
 	}
 
 	// configure SDL to request OpenGL 4.6
+	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 6);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
 
-	handle = SDL_CreateWindow("Gep", 1280, 720, SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
-	if (handle == nullptr)
+	// Kaikkien jutuskojen tarkistus, että ei oo tyhjiä, muuten erroria naamariin
+	window_handle = SDL_CreateWindow("Gep", 1280, 720, SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
+	if (window_handle == nullptr)
 	{
 		SDL_LogError(SDL_LOG_CATEGORY_VIDEO,
 			"SDL_CreateWindow: %s", SDL_GetError());
 		return false;
 	}
 
-	gl_context = SDL_GL_CreateContext(handle);
-	if (gl_context == nullptr)
+	gl_context = SDL_GL_CreateContext(window_handle);
+	auto version = gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress);
+	if (version == 0)
 	{
-		SDL_LogError(SDL_LOG_CATEGORY_VIDEO, "SDL_GL_CreateContext: %s", SDL_GetError());
+		SDL_LogError(SDL_LOG_CATEGORY_SYSTEM,
+			"SDL_GL_CreateContext failed: %s", SDL_GetError());
 		return false;
 	}
 
-	if (gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress) == 0)
-	{
-		SDL_LogError(SDL_LOG_CATEGORY_VIDEO, "Failed to initialize GLAD");
-		return false;
-	}
+	int32_t major, minor, profile;
+	SDL_GL_GetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, &major);
+	SDL_GL_GetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, &minor);
+	SDL_GL_GetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, &profile);
 
-	if (!renderer_2d.init())
-	{
-		SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Failed to initialize renderer");
-		return false;
-	}
+	SDL_Log("OpenGL version: %i.%i - Profile: %i", major, minor, profile);
+	SDL_Log("GLAD version: %i.%i", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
 
-
-	// Smiley face off
-	/*
-	renderer = SDL_CreateRenderer(handle, nullptr);
-	if (renderer == nullptr)
-	{
-		SDL_LogError(SDL_LOG_CATEGORY_RENDER,
-			"SDL_CreateRenderer: %s", SDL_GetError());
-		return false;
-	}
-
-	
-	image = IMG_LoadTexture(renderer, "assets/awesomeface.png");
-	if (image == nullptr)
-	{
-		SDL_LogError(SDL_LOG_CATEGORY_RENDER,
-			"IMG_LoadTexture failed: %s", SDL_GetError());
-		return false;
-	}
- 
-	SDL_GetTextureSize(image, &image_w, &image_h);
- 
-	// Get image stright to the middle of the screen
-	int width, height;
-	SDL_GetRenderOutputSize(renderer, &width, &height);
-	image_x = (width - image_w) / 2.0f;
-	image_y = (height - image_h) / 2.0f;
-	*/
-
+	glEnable(GL_BLEND);
+	glClearColor(58 / 255.f, 51 / 255.f, 51 / 255.f, 1.0f);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 	return true;
 }
 auto gep::game::run() -> void
 {
-	bool is_running = true;
+	int32_t window_width;
+	int32_t window_height;
+	SDL_GetWindowSize(window_handle, &window_width, &window_height);
 
-	// Singletons
 	auto& input_system = input::input_system::instance();
 	auto& time_manager = time::time_manager::instance();
 
-	// Define background color for changing them
-	SDL_Color background{ 30, 30, 30, 255 };
+	renderer::renderer_2d renderer{};
+	renderer::camera camera{ window_width, window_height, 5.0f };
+	renderer::texture tex{ "assets/awesomeface.png" };
+	auto speed = 5.0f; 
 
+	// i=postition change, 2=rotation change, 3=scale change
+	core::transform transform0{ glm::vec3{ -5.0f, 0.0f, 0.0f }, 0.0f, glm::vec3{ 2.0f } };  // moves up and down
+	core::transform transform1{ glm::vec3{ 0.0f, 0.0f, 0.0f }, 0.0f, glm::vec3{ 3.0f } };   // rotates
+	core::transform transform2{ glm::vec3{ 5.0f, 0.0f, 0.0f }, 15.0f, glm::vec3{ 2.0f } };  // pulses in size
+
+	float elapsed_time = 0.0f;
+
+	bool is_running = true;
 	while (is_running)
 	{
 		time_manager.tick();
+		const float delta_time = time_manager.get_delta_time();
+		elapsed_time += delta_time;
+
 		input_system.update();
 
 		SDL_Event event;
 		while (SDL_PollEvent(&event))
 		{
-			input_system.process_input(event);
-
 			if (event.type == SDL_EVENT_QUIT)
 			{
 				is_running = false;
+				return;
 			}
 
 			if (event.type == SDL_EVENT_WINDOW_RESIZED)
 			{
-				int width;
-				int height;
-				SDL_GetWindowSize(handle, &width, &height);
-				SDL_Log("Window resized to %d x %d", width, height);
+				SDL_GetWindowSize(window_handle, &window_width, &window_height);
+				SDL_Log("Window resized: %i %i", window_width, window_height);
 			}
 
-			// Draw area same size as window
-			if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
-			{
-				renderer_2d.set_viewport(event.window.data1, event.window.data2);
-			}
+			// Keeps camera and viewport in sync with screen size. So it wont go over the screen
+			renderer.set_viewport(window_width, window_height);
+			camera.set_viewport_size(window_width, window_height);
 
-			if (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP)
-			{
-
-				if (event.key.key == SDLK_W)
-				{
-					background = { 255, 0, 0, 255 }; // red
-				}
-				if (event.key.key == SDLK_A)
-				{
-					background = { 0, 255, 0, 255 }; // green
-				}
-				if (event.key.key == SDLK_S)
-				{
-					background = { 0, 0, 255, 255 }; // blue
-				}
-				if (event.key.key == SDLK_D)
-				{
-					background = { 255, 255, 0, 255 }; // yellow
-				}
-			}
+			input_system.process_input(event);
 		}
-
-		// Smiley face movement and drawing off
-		/*
-		// move speed times delta time so movement is same on different computers and not changing by performance differences
-		float delta_time = time_manager.get_delta_time();
-		float move_speed = 100.0f;
-
+		
+		// wasd
+		glm::vec3 camera_direction{ 0.0f };
 		if (input_system.is_key_pressed(SDLK_W))
 		{
-			image_y -= move_speed * delta_time;
-		}
-		if (input_system.is_key_pressed(SDLK_A))
-		{
-			image_x -= move_speed * delta_time;
+			camera_direction.y += 1.0f;
 		}
 		if (input_system.is_key_pressed(SDLK_S))
 		{
-			image_y += move_speed * delta_time;
+			camera_direction.y -= 1.0f;
+		}
+		if (input_system.is_key_pressed(SDLK_A))
+		{
+			camera_direction.x -= 1.0f;
 		}
 		if (input_system.is_key_pressed(SDLK_D))
 		{
-			image_x += move_speed * delta_time;
+			camera_direction.x += 1.0f;
 		}
 
-		int win_width, win_height;
-		SDL_GetWindowSize(handle, &win_width, &win_height);
-
-		if (image_x < 0)
+		if (glm::length(camera_direction) > 0.0f)
 		{
-			image_x = 0;
-		}
-		if (image_y < 0)
-		{
-			image_y = 0;
-		}
-		if (image_x > win_width - image->w)
-		{
-			image_x = win_width - image->w;
-		}
-		if (image_y > win_height - image->h)
-		{
-			image_y = win_height - image->h;
+			camera.translate(glm::normalize(camera_direction) * speed * delta_time);
 		}
 
-		SDL_SetRenderDrawColor(renderer, background.r, background.g, background.b, background.a);
-		SDL_RenderClear(renderer); // Clear the win
+		// Change pos, rotation and scale every frame
+		transform0.set_position(glm::vec3{ -5.0f, std::sin(elapsed_time * 2.0f) * 2.0f, 0.0f });
+		transform1.rotate(90.0f * delta_time); 
+		transform2.set_scale(glm::vec3{ 2.0f + std::sin(elapsed_time * 3.0f) * 0.5f });
 
-		const SDL_FRect dest{ image_x, image_y, image_w, image_h };
-		SDL_RenderTexture(renderer, image, nullptr, &dest); // Draw the image and colors
+		renderer.clear();
+		renderer.draw_quad(transform0, tex, camera);
+		renderer.draw_quad(transform1, tex, camera);
+		renderer.draw_quad(transform2, tex, camera);
 
-		SDL_RenderPresent(renderer); // Show it
-		*/
-		
-		// First bg colors and the draw the quad
-		renderer_2d.begin(background.r, background.g, background.b);
-		renderer_2d.draw_quad();
-
-		// Swap window to show the rendered area
-		SDL_GL_SwapWindow(handle);
+		SDL_GL_SwapWindow(window_handle);
 	}
 }
 
 auto gep::game::shutdown() noexcept -> void
 {
-	// final clena up fo openGL
-	renderer_2d.shutdown();
-
-	if (handle != nullptr)
-	{
-		SDL_DestroyWindow(handle);
-	}
-
 	if (gl_context != nullptr)
 	{
 		SDL_GL_DestroyContext(gl_context);
+	}
+
+	if (window_handle != nullptr)
+	{
+		SDL_DestroyWindow(window_handle);
 	}
 
 	SDL_Quit();
